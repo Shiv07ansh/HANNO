@@ -2,6 +2,39 @@
 
 An end-to-end edge AI pipeline demonstrating Post-Training Quantization (PTQ) and micro-runtime deployment. The project evaluates model compression trade-offs between FP32 and INT8 representations under constrained SRAM and compute footprints.
 
+HANNO
+Hardware-Aware Neural Network Optimization for TinyML
+
+                    ┌─────────────┐
+                    │   Dataset   │
+                    └──────┬──────┘
+                           ↓
+                    ┌─────────────┐
+                    │ Python ML   │
+                    │  Pipeline   │
+                    └──────┬──────┘
+                           ↓
+                    ┌─────────────┐
+                    │ Optimization│
+                    │ Quantization│
+                    └──────┬──────┘
+                           ↓
+                    ┌─────────────┐
+                    │ TFLite INT8 │
+                    └──────┬──────┘
+                           ↓
+              ┌────────────┴────────────┐
+              ↓                         ↓
+        Python TFLite             C++ TFLM
+              ↓                         ↓
+              └────────────┬────────────┘
+                           ↓
+                    Cross-validation
+                           ↓
+                     Target hardware
+                           ↓
+                  Latency / RAM / Flash
+                  
 ## Key Performance Metrics
 
 | Metric | FP32 Baseline | INT8 Quantized | Reduction / Improvement |

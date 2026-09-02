@@ -37,7 +37,7 @@ python3 src/tinyml_pipeline.py
 
 ## Trouble Shooting 
 
-##TFLite Micro Runtime Compatibility Investigation
+## TFLite Micro Runtime Compatibility Investigation
 
 ### Problem
 

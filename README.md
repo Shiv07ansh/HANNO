@@ -32,9 +32,12 @@ An end-to-end edge AI pipeline demonstrating Post-Training Quantization (PTQ) an
 ### 1. Run Quantization & Export Pipeline
 ```bash
 python3 src/tinyml_pipeline.py
+```
+---
 
 ## Trouble Shooting 
-## TFLite Micro Runtime Compatibility Investigation
+
+##TFLite Micro Runtime Compatibility Investigation
 
 ### Problem
 

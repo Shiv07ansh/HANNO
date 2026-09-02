@@ -1,9 +1,8 @@
 # Hardware-Aware Neural Network Optimization for TinyML
 
 An end-to-end edge AI pipeline demonstrating Post-Training Quantization (PTQ) and micro-runtime deployment. The project evaluates model compression trade-offs between FP32 and INT8 representations under constrained SRAM and compute footprints.
+HANNO evaluates the trade-offs between floating-point and fully integer-quantized neural networks across model size, tensor memory requirements, inference latency, and prediction fidelity, with deployment validated through TensorFlow Lite Micro.
 
-HANNO
-Hardware-Aware Neural Network Optimization for TinyML
 
                     ┌─────────────┐
                     │   Dataset   │
@@ -25,25 +24,26 @@ Hardware-Aware Neural Network Optimization for TinyML
                            ↓
               ┌────────────┴────────────┐
               ↓                         ↓
-        Python TFLite             C++ TFLM
+        Python TFLite                C++ TFLM
               ↓                         ↓
               └────────────┬────────────┘
                            ↓
-                    Cross-validation
+                    Cross-Runtime validation
                            ↓
                      Target hardware
                            ↓
-                  Latency / RAM / Flash
+              ┌────────────┼────────────┐
+              ↓            ↓            ↓
+           Latency        RAM         Flash
+
+
                   
 ## Key Performance Metrics
 
-| Metric | FP32 Baseline | INT8 Quantized | Reduction / Improvement |
-| :--- | :--- | :--- | :--- |
-| **Model Size** | 58.40 KB | 16.20 KB | **72.3% smaller** |
-| **SRAM Peak Memory** | 24.50 KB | 8.10 KB | **66.9% saved** |
-| **Inference Latency** | 1.84 ms | 0.62 ms | **2.97x speedup** |
-| **Top-1 Accuracy** | 98.2% | 97.9% | -0.3% drop |
+## Key Performance Metrics
 
+> Benchmark results will be updated after the current FP32/INT8
+> models are evaluated under the same measurement methodology.
 ---
 
 ## Architectural Workflow
@@ -54,8 +54,8 @@ Hardware-Aware Neural Network Optimization for TinyML
    * Generates flatbuffer artifacts (`.tflite`) and C array headers (`model_data.h`).
 
 2. **Embedded Inference Engine (`main.cpp`)**
-   * Statically allocates a **10 KB Tensor Arena** in SRAM.
-   * Maps model flatbuffers directly from flash without dynamic heap allocation (`malloc`).
+   * Allocates a 1 MB tensor arena and reports the actual TFLite Micro memory requirement; the current model requires approximately 16.45 KB of tensor arena memory.
+   * Loads the embedded FlatBuffer model and allocates a dedicated tensor arena for TFLite Micro inference. Interpreter and arena lifetimes are explicitly managed to avoid use-after-free errors.
    * Executes hardware-friendly `int8_t` kernel math via TFLite for Microcontrollers.
 
 ---
@@ -68,7 +68,7 @@ python3 src/tinyml_pipeline.py
 ```
 ---
 
-## Trouble Shooting 
+## Debugging & Troubleshooting
 
 ## TFLite Micro Runtime Compatibility Investigation
 

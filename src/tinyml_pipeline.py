@@ -12,7 +12,6 @@ def parse_args():
     return parser.parse_args()
 
 def get_or_create_model(model_path=None):
-    """Loads a custom model if provided, otherwise creates a default baseline model."""
     if model_path and os.path.exists(model_path):
         print(f"[+] Loading custom pre-trained model from: {model_path}")
         model = keras.models.load_model(model_path)
@@ -29,9 +28,10 @@ def get_or_create_model(model_path=None):
             keras.layers.Dense(64, activation='relu'),
             keras.layers.Dense(10, activation='softmax')
         ])
-        model.compile(optimizer='adam', loss='sparse_categorical_accuracy', metrics=['accuracy'])
+        model.compile(optimizer='adam',
+                      loss='sparse_categorical_crossentropy',
+                      metrics=['sparse_categorical_accuracy'])
         
-        # Train on synthetic dummy data quickly if baseline
         x_train = np.random.rand(500, 28, 28, 1).astype(np.float32)
         y_train = np.random.randint(0, 10, size=(500,))
         model.fit(x_train, y_train, epochs=1, batch_size=32, verbose=0)
@@ -39,67 +39,56 @@ def get_or_create_model(model_path=None):
     return model
 
 def generate_dynamic_dataset(model, num_samples=200):
-    """Dynamically generates sample evaluation data matching the exact input shape of the target model."""
-    # Extract expected input shape (ignoring batch dimension at index 0)
     input_shape = model.input_shape
     if isinstance(input_shape, list):
         input_shape = input_shape[0]
         
-    # Replace None/batch_size with num_samples
     target_shape = tuple(num_samples if dim is None else dim for dim in input_shape)
     print(f"[+] Dynamically generated evaluation dataset with shape: {target_shape}")
-    
-    # Generate float32 samples normalized between 0 and 1
     return np.random.rand(*target_shape).astype(np.float32)
 
 def representative_dataset_gen(eval_data):
-    """Provides sample data for INT8 calibration dynamically."""
     for i in range(min(100, len(eval_data))):
-        # Add batch dimension of 1 for calibration
         yield [np.expand_dims(eval_data[i], axis=0)]
 
 def benchmark_tflite(model_path, eval_data):
-    """Profiles latency, model size, and SRAM allocation dynamically regardless of tensor shape."""
     interpreter = tf.lite.Interpreter(model_path=model_path)
     interpreter.allocate_tensors()
     
     input_details = interpreter.get_input_details()
-    output_details = interpreter.get_output_details()
-    
-    # Measure latency over sample runs
     times = []
     num_runs = min(100, len(eval_data))
     
     for i in range(num_runs):
         sample = np.expand_dims(eval_data[i], axis=0)
         
-        # Scale/quantize input dynamically if target expects INT8
         if input_details[0]['dtype'] == np.int8:
             scale, zero_point = input_details[0]['quantization']
             if scale > 0:
-                sample = (sample / scale + zero_point).astype(np.int8)
+                sample = np.clip((sample / scale + zero_point), -128, 127).astype(np.int8)
             else:
-                sample = sample.astype(np.int8)
+                sample = np.clip(sample, -128, 127).astype(np.int8)
             
         interpreter.set_tensor(input_details[0]['index'], sample)
         
         start = time.perf_counter()
         interpreter.invoke()
         end = time.perf_counter()
-        times.append((end - start) * 1000.0) # convert to ms
+        times.append((end - start) * 1000.0)
 
-    avg_latency_ms = np.mean(times)
+    avg_latency_ms = float(np.mean(times))
     file_size_kb = os.path.getsize(model_path) / 1024.0
     
-    # Compute working memory footprint from tensor allocations
     tensor_details = interpreter.get_tensor_details()
-    sram_bytes = sum(t['bytes'] for t in tensor_details if t['bytes'] > 0)
+    sram_bytes = sum(
+        t.get('bytes', np.dtype(t['dtype']).itemsize * int(np.prod(t['shape'])))
+        for t in tensor_details
+    )
     sram_kb = sram_bytes / 1024.0
 
     return avg_latency_ms, file_size_kb, sram_kb, input_details[0]['shape']
 
 def convert_to_c_header(tflite_path, header_path):
-    """Converts the .tflite binary into a standard C array for microcontrollers."""
     with open(tflite_path, "rb") as f:
         bytes_data = f.read()
     
@@ -122,23 +111,20 @@ def main():
     int8_path = os.path.join(args.output_dir, "model_int8.tflite")
     header_path = os.path.join(args.output_dir, "model_data.h")
 
-    # --- 1. Load or Build Target Model ---
     model = get_or_create_model(args.model_path)
     eval_data = generate_dynamic_dataset(model)
 
-    # --- 2. Export FP32 TFLite Model ---
     print("[+] Exporting FP32 TFLite flatbuffer...")
     converter_fp32 = tf.lite.TFLiteConverter.from_keras_model(model)
     tflite_fp32 = converter_fp32.convert()
     with open(fp32_path, "wb") as f:
         f.write(tflite_fp32)
 
-    # --- 3. Quantize & Export Full INT8 Model ---
     print("[+] Executing Post-Training INT8 Quantization...")
     converter_int8 = tf.lite.TFLiteConverter.from_keras_model(model)
     converter_int8.optimizations = [tf.lite.Optimize.DEFAULT]
     converter_int8.representative_dataset = lambda: representative_dataset_gen(eval_data)
-    converter_int8.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTIN_INT8]
+    converter_int8.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     converter_int8.inference_input_type = tf.int8
     converter_int8.inference_output_type = tf.int8
     
@@ -146,11 +132,9 @@ def main():
     with open(int8_path, "wb") as f:
         f.write(tflite_int8)
 
-    # --- 4. Benchmark Metric Suite ---
     fp32_lat, fp32_size, fp32_sram, in_shape = benchmark_tflite(fp32_path, eval_data)
     int8_lat, int8_size, int8_sram, _ = benchmark_tflite(int8_path, eval_data)
 
-    # --- 5. Format Results Summary ---
     print("\n================ Hardware Trade-off Profiling Summary ================")
     print(f"Detected Model Input Tensor Shape: {list(in_shape)}")
     print("-" * 72)
@@ -161,7 +145,6 @@ def main():
     print(f"{'Avg Latency (ms)':<25} | {fp32_lat:<15.3f} | {int8_lat:<15.3f} | {((1 - int8_lat/fp32_lat)*100):<9.1f}%")
     print("======================================================================\n")
 
-    # --- 6. Export Embedded C Header ---
     convert_to_c_header(int8_path, header_path)
     print(f"[+] Successfully exported C header array to: '{header_path}'")
 
